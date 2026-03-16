@@ -9,46 +9,85 @@ const LocationInfo = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!navigator.geolocation) {
-      setError('浏览器不支持地理位置');
-      return;
-    }
+    let watchId = null;
 
-    const watchId = navigator.geolocation.watchPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
+    const startTracking = async () => {
+      try {
+        const { Geolocation } = await import('@capacitor/geolocation');
+        
+        // Request permissions for Android
+        const permissionStatus = await Geolocation.requestPermissions();
+        if (permissionStatus.location !== 'granted') {
+          setError('位置权限未授予，请在手机设置中开启');
+          return;
+        }
+
+        watchId = await Geolocation.watchPosition(
+          { enableHighAccuracy: true },
+          (position, err) => {
+            if (err) {
+              console.error('Capacitor Geolocation error:', err);
+              setError('无法获取位置，请确保已授权并开启 GPS');
+              return;
+            }
+            if (position) {
+              handlePositionUpdate(position.coords.latitude, position.coords.longitude);
+            }
+          }
+        );
+      } catch (e) {
+        // Fallback to web API if plugin is not available
+        if (navigator.geolocation) {
+          watchId = navigator.geolocation.watchPosition(
+            (pos) => handlePositionUpdate(pos.coords.latitude, pos.coords.longitude),
+            (err) => {
+              console.error('Web Geolocation error:', err);
+              setError('无法获取位置，请确保已授权');
+            },
+            { enableHighAccuracy: true }
+          );
+        } else {
+          setError('浏览器不支持地理位置');
+        }
+      }
+    };
+
+    const handlePositionUpdate = async (latitude, longitude) => {
+      setLocation((prev) => ({
+        ...prev,
+        latitude: latitude.toFixed(6),
+        longitude: longitude.toFixed(6),
+      }));
+
+      try {
+        const response = await fetch(
+          `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=zh`
+        );
+        const data = await response.json();
+        const city = data.city || data.principalSubdivision || '';
+        const district = data.locality || '';
+        
         setLocation((prev) => ({
           ...prev,
-          latitude: latitude.toFixed(6),
-          longitude: longitude.toFixed(6),
+          address: city && district ? `${city} ${district}` : data.lookupSource === 'Coordinates' ? '无法解析具体街道' : '位置解析完成',
         }));
+      } catch (err) {
+        console.error('Reverse geocoding failed:', err);
+        setLocation((prev) => ({ ...prev, address: '解析失败，请检查网络' }));
+      }
+    };
 
-        try {
-          // Using a public reverse geocoding API (BigDataCloud is generally fast and free for client-side)
-          const response = await fetch(
-            `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=zh`
-          );
-          const data = await response.json();
-          const city = data.city || data.principalSubdivision || '';
-          const district = data.locality || '';
-          
-          setLocation((prev) => ({
-            ...prev,
-            address: city && district ? `${city} ${district}` : data.lookupSource === 'Coordinates' ? '无法解析具体街道' : '位置解析完成',
-          }));
-        } catch (err) {
-          console.error('Reverse geocoding failed:', err);
-          setLocation((prev) => ({ ...prev, address: '解析失败，请检查网络' }));
-        }
-      },
-      (err) => {
-        console.error('Geolocation error:', err);
-        setError('无法获取位置，请确保已授权');
-      },
-      { enableHighAccuracy: true }
-    );
+    startTracking();
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    return () => {
+      if (watchId !== null) {
+        import('@capacitor/geolocation').then(({ Geolocation }) => {
+          Geolocation.clearWatch({ id: watchId });
+        }).catch(() => {
+          navigator.geolocation.clearWatch(watchId);
+        });
+      }
+    };
   }, []);
 
   if (error) {

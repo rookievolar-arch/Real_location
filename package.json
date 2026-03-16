@@ -14,7 +14,8 @@
     "framer-motion": "^10.16.4",
     "@capacitor/core": "latest",
     "@capacitor/android": "latest",
-    "@capacitor/app": "latest"
+    "@capacitor/app": "latest",
+    "@capacitor/geolocation": "latest"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.3",
