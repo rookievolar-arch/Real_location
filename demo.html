@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>北京时间与位置定位</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --bg-color: #f0f2f5;
+            --card-bg: rgba(255, 255, 255, 1);
+            --text-main: #1a1a1a;
+            --text-secondary: #595959;
+            --accent-color: #3498db;
+            --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #root {
+            width: 100%;
+            max-width: 500px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .app-container {
+            background: var(--card-bg);
+            margin: 20px;
+            padding: 40px 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            flex: 1;
+            border-radius: 20px;
+        }
+
+        .card {
+            background: #ffffff;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+            text-align: center;
+            border: 1px solid #f0f0f0;
+        }
+
+        .clock-item .time {
+            font-size: 3.5rem;
+            font-weight: 700;
+            letter-spacing: -2px;
+            color: var(--text-main);
+        }
+
+        .clock-item .date {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+
+        .location-container {
+            text-align: left;
+        }
+
+        .location-item {
+            margin-bottom: 12px;
+        }
+
+        .label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .value {
+            font-size: 1.2rem;
+            font-weight: 500;
+        }
+
+        .exit-trigger {
+            margin-top: auto;
+            padding: 15px;
+            background: #fff;
+            border: 1px solid #eee;
+            border-radius: 12px;
+            color: #ff4d4f;
+            font-weight: 600;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        .dialog-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+        }
+
+        .dialog-content {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            width: 85%;
+            max-width: 320px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .dialog-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 25px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 12px;
+            border: none;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn-cancel { background: #f0f2f5; color: var(--text-secondary); }
+        .btn-exit { background: #ff4d4f; color: white; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { motion, AnimatePresence } = window.Motion;
+
+        const Clock = () => {
+            const [time, setTime] = useState(new Date());
+            useEffect(() => {
+                const timer = setInterval(() => setTime(new Date()), 1000);
+                return () => clearInterval(timer);
+            }, []);
+
+            const beijingTimeOptions = { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' };
+            const beijingDateOptions = { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+            
+            const timeString = new Intl.DateTimeFormat('zh-CN', beijingTimeOptions).format(time);
+            const dateString = new Intl.DateTimeFormat('zh-CN', beijingDateOptions).format(time);
+
+            return (
+                <div className="card clock-item">
+                    <div className="label">北京时间 (精确到秒)</div>
+                    <div className="time">{timeString}</div>
+                    <div className="date">{dateString}</div>
+                </div>
+            );
+        };
+
+        const LocationInfo = () => {
+            const [loc, setLoc] = useState({ lat: '获取中...', lon: '获取中...', addr: '正在解析位置...' });
+            
+            useEffect(() => {
+                if (!navigator.geolocation) return;
+                navigator.geolocation.getCurrentPosition(async (pos) => {
+                    const { latitude, longitude } = pos.coords;
+                    setLoc(prev => ({ ...prev, lat: latitude.toFixed(6), lon: longitude.toFixed(6) }));
+                    try {
+                        const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=zh`);
+                        const data = await res.json();
+                        setLoc(prev => ({ ...prev, addr: `${data.city || data.principalSubdivision || ''} ${data.locality || ''}` }));
+                    } catch (e) {
+                        setLoc(prev => ({ ...prev, addr: '解析失败，请检查网络' }));
+                    }
+                });
+            }, []);
+
+            return (
+                <div className="card location-container">
+                    <div className="location-item">
+                        <div className="label">所在城市与地区</div>
+                        <div className="value">{loc.addr}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '20px' }}>
+                        <div style={{ flex: 1 }}>
+                            <div className="label">经度</div>
+                            <div className="value">{loc.lon}</div>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <div className="label">纬度</div>
+                            <div className="value">{loc.lat}</div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [showExit, setShowExit] = useState(false);
+            return (
+                <div className="app-container">
+                    <Clock />
+                    <LocationInfo />
+                    <div className="exit-trigger" onClick={() => setShowExit(true)}>退出软件</div>
+                    
+                    {showExit && (
+                        <div className="dialog-overlay">
+                            <div className="dialog-content">
+                                <div style={{ fontSize: '1.4rem', fontWeight: 600, marginBottom: '15px' }}>确认退出</div>
+                                <p style={{ color: '#595959' }}>您确定要关闭应用程序吗？</p>
+                                <div className="dialog-actions">
+                                    <button className="btn btn-cancel" onClick={() => setShowExit(false)}>取消</button>
+                                    <button className="btn btn-exit" onClick={() => { 
+                                        if (window.confirm('您确定要关闭应用程序吗？')) {
+                                            window.close();
+                                            // Fallback for browsers that block window.close()
+                                            setTimeout(() => {
+                                                alert('软件已发出退出指令。在浏览器演示模式下，出于安全限制，请手动关闭此标签页。在正式安卓 App 中将直接退出。');
+                                            }, 100);
+                                        }
+                                        setShowExit(false); 
+                                    }}>退出</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
