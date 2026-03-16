@@ -32,7 +32,7 @@ jobs:
       - name: Capacitor Sync
         run: |
           npx cap add android || true
-          node patch_android.js
+          node patch_android.cjs
           npx cap sync
 
       - name: Build APK
