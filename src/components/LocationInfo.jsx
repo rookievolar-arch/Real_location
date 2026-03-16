@@ -1,174 +1,172 @@
 import React, { useState, useEffect } from 'react';
 
 const LocationInfo = () => {
-  const [location, setLocation] = useState({
-    latitude: '获取中...',
-    longitude: '获取中...',
-    address: '正在解析位置...',
+  const [gpsLocation, setGpsLocation] = useState({
+    latitude: '',
+    longitude: '',
+    address: '正在搜索卫星信号...',
+    status: 'searching' // searching, success, error
   });
-  const [error, setError] = useState(null);
+
+  const [networkLocation, setNetworkLocation] = useState({
+    address: '正在通过网络定位...',
+    city: '',
+    district: '',
+    status: 'loading'
+  });
+
+  const [gpsError, setGpsError] = useState(null);
 
   useEffect(() => {
     let watchId = null;
 
-    const startTracking = async () => {
+    // 1. Initial Network Position (IP-based - Very fast, works indoors)
+    const getNetworkPosition = async () => {
+      try {
+        const response = await fetch(
+          `https://api.bigdatacloud.net/data/reverse-geocode-client?localityLanguage=zh`
+        );
+        const data = await response.json();
+        const city = data.city || data.principalSubdivision || '';
+        const district = data.locality || '';
+        setNetworkLocation({
+          address: city && district ? `${city} ${district}` : city || '解析成功',
+          city,
+          district,
+          status: 'success'
+        });
+      } catch (err) {
+        console.error('Network positioning failed:', err);
+        setNetworkLocation(prev => ({ ...prev, address: '网络定位暂不可用', status: 'error' }));
+      }
+    };
+
+    // 2. High Accuracy GPS Position
+    const startGpsTracking = async () => {
       try {
         const { Geolocation } = await import('@capacitor/geolocation');
         
-        // Request permissions
         const permissionStatus = await Geolocation.requestPermissions();
         if (permissionStatus.location !== 'granted') {
-          setError('位置权限未授予，请在手机设置中开启');
+          setGpsError('未授予定位权限');
           return;
         }
 
-        // Try to get a single position first with a very long timeout and fallback
-        const getInitialPosition = async () => {
-          try {
-            // First try high accuracy
-            const pos = await Geolocation.getCurrentPosition({
-              enableHighAccuracy: true,
-              timeout: 30000, // 30 seconds
-              maximumAge: 10000
-            });
-            handlePositionUpdate(pos.coords.latitude, pos.coords.longitude);
-          } catch (e) {
-            console.warn('High accuracy failed, trying low accuracy fallback...', e);
-            try {
-              // Fallback to low accuracy (network/wifi) which is much faster
-              const pos = await Geolocation.getCurrentPosition({
-                enableHighAccuracy: false,
-                timeout: 30000
-              });
-              handlePositionUpdate(pos.coords.latitude, pos.coords.longitude);
-            } catch (e2) {
-              console.error('Initial position acquisition failed completely:', e2);
-            }
-          }
-        };
-
-        await getInitialPosition();
-
         watchId = await Geolocation.watchPosition(
           { 
-            enableHighAccuracy: true, // Keep trying high accuracy in background
-            timeout: 60000, // 60 seconds for watch
+            enableHighAccuracy: true,
+            timeout: 30000,
             maximumAge: 0 
           },
           (position, err) => {
             if (err) {
-              console.error('Capacitor Geolocation error:', err);
-              // Only set error if we don't even have a cached/fallback location
-              if (!location.latitude || location.latitude === '获取中...') {
-                const msg = err.message || '';
-                if (msg.includes('Timeout')) {
-                  setError('定位超时(搜星较慢)。请确保已开启 GPS 并尝试移至室外。我们将继续在后台尝试。');
-                } else {
-                  setError(`定位失败: ${msg || '请检查 GPS 设置'}`);
-                }
+              console.error('GPS error:', err);
+              if (!gpsLocation.latitude) {
+                setGpsError(err.message?.includes('Timeout') ? 'GPS 搜星超时(建议移至窗边)' : `GPS 错误: ${err.message}`);
               }
               return;
             }
             if (position) {
-              setError(null);
-              handlePositionUpdate(position.coords.latitude, position.coords.longitude);
+              setGpsError(null);
+              handleGpsUpdate(position.coords.latitude, position.coords.longitude);
             }
           }
         );
       } catch (e) {
-        // Fallback to web API
+        // Simple web fallback for GPS
         if (navigator.geolocation) {
           watchId = navigator.geolocation.watchPosition(
             (pos) => {
-              setError(null);
-              handlePositionUpdate(pos.coords.latitude, pos.coords.longitude);
+              setGpsError(null);
+              handleGpsUpdate(pos.coords.latitude, pos.coords.longitude);
             },
-            (err) => {
-              console.error('Web Geolocation error:', err);
-              setError('无法获取位置，请确保已授权并开启 GPS');
-            },
-            { enableHighAccuracy: true, timeout: 10000 }
+            (err) => setGpsError('GPS 启动失败'),
+            { enableHighAccuracy: true }
           );
-        } else {
-          setError('当前环境不支持地理位置获取');
         }
       }
     };
 
-    const handlePositionUpdate = async (latitude, longitude) => {
-      setLocation((prev) => ({
+    const handleGpsUpdate = async (lat, lng) => {
+      setGpsLocation(prev => ({
         ...prev,
-        latitude: latitude.toFixed(6),
-        longitude: longitude.toFixed(6),
+        latitude: lat.toFixed(6),
+        longitude: lng.toFixed(6),
+        status: 'success'
       }));
 
       try {
-        // More robust fetch for reverse geocoding
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-        
         const response = await fetch(
-          `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=zh`,
-          { signal: controller.signal }
+          `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=zh`
         );
-        clearTimeout(timeoutId);
-        
         const data = await response.json();
-        const city = data.city || data.principalSubdivision || data.locality || '';
-        const district = data.locality || data.localityInfo?.informative?.find(i => i.order === 4)?.name || '';
-        
-        setLocation((prev) => ({
+        const city = data.city || data.principalSubdivision || '';
+        const district = data.locality || '';
+        setGpsLocation(prev => ({
           ...prev,
-          address: city ? (district && city !== district ? `${city} ${district}` : city) : '位置解析完成',
+          address: city && district ? `${city} ${district}` : city || '经纬度解析成功'
         }));
       } catch (err) {
-        console.error('Reverse geocoding failed:', err);
-        setLocation((prev) => ({ ...prev, address: '经纬度已获取，但地址解析失败(请检查网络)' }));
+        setGpsLocation(prev => ({ ...prev, address: '位置解析失败(请检查网络)' }));
       }
     };
 
-    startTracking();
+    getNetworkPosition();
+    startGpsTracking();
 
     return () => {
       if (watchId !== null) {
         import('@capacitor/geolocation').then(({ Geolocation }) => {
           Geolocation.clearWatch({ id: watchId });
         }).catch(() => {
-          if (navigator.geolocation && watchId) {
-            navigator.geolocation.clearWatch(watchId);
-          }
+          if (navigator.geolocation) navigator.geolocation.clearWatch(watchId);
         });
       }
     };
   }, []);
 
-  if (error) {
-    return (
-      <div className="card location-container" style={{ borderColor: '#ff4d4f' }}>
-        <div className="label" style={{ color: '#ff4d4f' }}>位置信息错误</div>
-        <div className="value">{error}</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="card location-container">
-      <div className="location-item">
-        <div className="label">所在城市与地区</div>
-        <div className="value">{location.address}</div>
+    <div className="location-group">
+      {/* 模块1: 精确位置 (GPS) */}
+      <div className={`card location-container ${gpsError ? 'error-card' : ''}`}>
+        <div className="label-row">
+          <span className="label">精确位置 (GPS/北斗)</span>
+          <span className={`status-tag ${gpsLocation.status}`}>{gpsLocation.status === 'success' ? '已通过硬件定位' : '硬件搜星中...'}</span>
+        </div>
+        
+        {gpsError ? (
+          <div className="error-msg">{gpsError}</div>
+        ) : (
+          <>
+            <div className="value primary-text">{gpsLocation.address}</div>
+            <div className="coord-grid">
+              <div className="coord-item">
+                <div className="label-small">经度</div>
+                <div className="value-small">{gpsLocation.longitude || '等待信号'}</div>
+              </div>
+              <div className="coord-item">
+                <div className="label-small">纬度</div>
+                <div className="value-small">{gpsLocation.latitude || '等待信号'}</div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
-      <div style={{ display: 'flex', gap: '20px' }}>
-        <div className="location-item" style={{ flex: 1 }}>
-          <div className="label">经度</div>
-          <div className="value">{location.longitude}</div>
+
+      {/* 模块2: 网络位置 (辅助定位) */}
+      <div className="card location-container network-card">
+        <div className="label-row">
+          <span className="label">网络位置 (IP/基站辅助)</span>
+          <span className="status-tag success">稳定可用</span>
         </div>
-        <div className="location-item" style={{ flex: 1 }}>
-          <div className="label">纬度</div>
-          <div className="value">{location.latitude}</div>
-        </div>
+        <div className="value primary-text">{networkLocation.address}</div>
+        <div className="tip-text">注意：网络定位在室内也能使用，但精度通常在百米范围内。</div>
       </div>
     </div>
   );
+};
+
+export default LocationInfo;
 };
 
 export default LocationInfo;
