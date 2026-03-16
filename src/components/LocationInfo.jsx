@@ -22,39 +22,55 @@ const LocationInfo = () => {
           return;
         }
 
-        // Try to get a single clear position first to "warm up" the GPS
-        try {
-          const initialPosition = await Geolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 10000
-          });
-          handlePositionUpdate(initialPosition.coords.latitude, initialPosition.coords.longitude);
-        } catch (e) {
-          console.warn('Initial position acquisition failed, starting watch instead...');
-        }
+        // Try to get a single position first with a very long timeout and fallback
+        const getInitialPosition = async () => {
+          try {
+            // First try high accuracy
+            const pos = await Geolocation.getCurrentPosition({
+              enableHighAccuracy: true,
+              timeout: 30000, // 30 seconds
+              maximumAge: 10000
+            });
+            handlePositionUpdate(pos.coords.latitude, pos.coords.longitude);
+          } catch (e) {
+            console.warn('High accuracy failed, trying low accuracy fallback...', e);
+            try {
+              // Fallback to low accuracy (network/wifi) which is much faster
+              const pos = await Geolocation.getCurrentPosition({
+                enableHighAccuracy: false,
+                timeout: 30000
+              });
+              handlePositionUpdate(pos.coords.latitude, pos.coords.longitude);
+            } catch (e2) {
+              console.error('Initial position acquisition failed completely:', e2);
+            }
+          }
+        };
+
+        await getInitialPosition();
 
         watchId = await Geolocation.watchPosition(
           { 
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 3000 
+            enableHighAccuracy: true, // Keep trying high accuracy in background
+            timeout: 60000, // 60 seconds for watch
+            maximumAge: 0 
           },
           (position, err) => {
             if (err) {
               console.error('Capacitor Geolocation error:', err);
-              // Provide more specific error tips based on common issues
-              const msg = err.message || '';
-              if (msg.includes('Timeout')) {
-                setError('获取位置超时。请确保您在室外或靠近窗户处，并确认已开启 GPS。');
-              } else if (msg.includes('Location services')) {
-                setError('手机定位服务未开启，请在系统下拉菜单中开启 GPS。');
-              } else {
-                setError(`获取位置失败: ${msg || '请确保已授权并开启 GPS'}`);
+              // Only set error if we don't even have a cached/fallback location
+              if (!location.latitude || location.latitude === '获取中...') {
+                const msg = err.message || '';
+                if (msg.includes('Timeout')) {
+                  setError('定位超时(搜星较慢)。请确保已开启 GPS 并尝试移至室外。我们将继续在后台尝试。');
+                } else {
+                  setError(`定位失败: ${msg || '请检查 GPS 设置'}`);
+                }
               }
               return;
             }
             if (position) {
-              setError(null); // Clear error if we get a position
+              setError(null);
               handlePositionUpdate(position.coords.latitude, position.coords.longitude);
             }
           }
