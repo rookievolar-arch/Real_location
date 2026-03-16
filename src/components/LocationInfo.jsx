@@ -167,6 +167,3 @@ const LocationInfo = () => {
 };
 
 export default LocationInfo;
-};
-
-export default LocationInfo;
