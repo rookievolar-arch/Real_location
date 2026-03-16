@@ -9,7 +9,9 @@ if (fs.existsSync(manifestPath)) {
     const permissions = `
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-feature android:name="android.hardware.location.gps" />`;
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />`;
 
     if (!content.includes('android.permission.ACCESS_FINE_LOCATION')) {
         content = content.replace('</manifest>', `${permissions}\n</manifest>`);
